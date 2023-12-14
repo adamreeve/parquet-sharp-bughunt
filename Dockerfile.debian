@@ -1,0 +1,19 @@
+# Build container
+FROM mcr.microsoft.com/dotnet/sdk:8.0 as BUILD
+
+ADD Program.cs build/Program.cs
+ADD ParquetSharpBughunt.csproj build/ParquetSharpBughunt.csproj
+
+WORKDIR /build
+RUN dotnet publish -r linux-x64 -c Release -o parquet-sharp-bughunt -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true --self-contained true
+
+# Application container
+FROM docker.io/debian:latest
+
+WORKDIR /app
+
+COPY --from=BUILD /build/parquet-sharp-bughunt/ParquetSharpBughunt /usr/local/bin/parquet-sharp-bughunt
+RUN chmod +x /usr/local/bin/parquet-sharp-bughunt
+ENV DOTNET_BUNDLE_EXTRACT_BASE_DIR=/tmp
+
+ENTRYPOINT ["/usr/local/bin/parquet-sharp-bughunt"]
