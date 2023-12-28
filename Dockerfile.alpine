@@ -18,4 +18,6 @@ COPY --from=BUILD /build/parquet-sharp-bughunt/ParquetSharpBughunt /usr/local/bi
 RUN chmod +x /usr/local/bin/parquet-sharp-bughunt
 ENV DOTNET_BUNDLE_EXTRACT_BASE_DIR=/tmp
 
+ENV LD_PRELOAD=/lib/libgcompat.so.0
+
 ENTRYPOINT ["/usr/local/bin/parquet-sharp-bughunt"]
