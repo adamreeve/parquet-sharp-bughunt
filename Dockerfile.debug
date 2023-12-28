@@ -1,0 +1,56 @@
+# ParquetSharp native lib build container
+FROM docker.io/library/centos:7 AS NATIVE_BUILD
+
+RUN yum install -y centos-release-scl epel-release && \
+    yum install -y devtoolset-7 rh-git227 flex bison perl-Data-Dumper perl-IPC-Cmd && \
+    curl -fsSL -o /tmp/cmake.sh https://github.com/Kitware/CMake/releases/download/v3.27.8/cmake-3.27.8-linux-x86_64.sh && \
+    sh /tmp/cmake.sh --skip-license --prefix=/usr/local && \
+    rm /tmp/cmake.sh
+
+RUN mkdir /build
+WORKDIR /build
+
+RUN scl enable devtoolset-7 rh-git227 -- git clone --depth 1 --branch 13.0.0 https://github.com/G-Research/ParquetSharp.git
+WORKDIR /build/ParquetSharp
+
+RUN scl enable devtoolset-7 rh-git227 -- ./build_unix.sh x64
+
+# ParquetSharp dotnet build container
+FROM mcr.microsoft.com/dotnet/sdk:7.0 as DOTNET_BUILD
+
+RUN mkdir /build
+WORKDIR /build
+
+RUN git clone --depth 1 --branch 13.0.0 https://github.com/G-Research/ParquetSharp.git
+WORKDIR /build/ParquetSharp
+
+COPY --from=NATIVE_BUILD /build/ParquetSharp/bin/x64-linux/ParquetSharpNatived.so /build/ParquetSharp/bin/x64-linux/ParquetSharpNatived.so
+
+RUN dotnet build csharp --configuration=Debug
+
+# App Build container
+FROM mcr.microsoft.com/dotnet/sdk:8.0 as BUILD
+
+COPY --from=DOTNET_BUILD /build/ParquetSharp/nuget/ParquetSharp.13.0.0.nupkg /nuget_repo/
+
+ADD Program.cs build/Program.cs
+ADD ParquetSharpBughunt.csproj build/ParquetSharpBughunt.csproj
+
+WORKDIR /build
+RUN echo "<configuration></configuration>" > nuget.config
+RUN dotnet nuget add source /nuget_repo --name 'LocalDir' --configfile ./nuget.config
+RUN dotnet publish -r linux-musl-x64 -c Release -o parquet-sharp-bughunt -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true --self-contained true
+
+# Application container
+FROM docker.io/alpine:3.18
+
+RUN apk add --no-cache libstdc++ gcompat icu gdb musl-dbg libstdc++-dev
+
+WORKDIR /app
+
+COPY --from=BUILD /build/parquet-sharp-bughunt/ParquetSharpBughunt /usr/local/bin/parquet-sharp-bughunt
+RUN chmod +x /usr/local/bin/parquet-sharp-bughunt
+ENV DOTNET_BUNDLE_EXTRACT_BASE_DIR=/tmp
+
+ENTRYPOINT ["/usr/bin/gdb", "/usr/local/bin/parquet-sharp-bughunt"]
+
